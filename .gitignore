@@ -3,3 +3,5 @@
 imgui.ini
 asciicker.cfg
 out/
+stage/
+dist/

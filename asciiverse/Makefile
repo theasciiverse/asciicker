@@ -26,7 +26,7 @@ DEFS := -DGAME -DPURE_TERM -DAV_QUICKJS -DAV_MINIAUDIO -DAV_PATHS -DAV_FPS=60 -D
 OBJS := $(GAME:%.cpp=$(OBJ)/%.o) $(GAME_C:%.c=$(OBJ)/%.o) $(QJS:%.c=$(OBJ)/%.o)
 
 $(OUT)/asciicker: $(OBJS)
-	$(CXX) $(LDFLAGS) -pthread -o $@ $(OBJS) $(LIBS) -lutil -ldl -lm
+	$(CXX) $(LDFLAGS) -pthread -o $@ $(OBJS) $(LIBS) -ldl -lm
 
 $(OBJ)/asciiverse/quickjs/%.o: asciiverse/quickjs/%.c
 	@mkdir -p $(dir $@)
