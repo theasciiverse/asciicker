@@ -51,6 +51,22 @@ as before.
   on a bigger terminal the picture is centred instead of in the top left
   corner, mouse positions are moved to match, and a resize clears what is
   left around it.
+- **Only changed cells** (`AV_DIFF`, game_app.cpp). Each frame sends only
+  the cells that changed since the last one; upstream sent the whole
+  screen every frame (about 45 KB at 100x30). A resize or a clear sends
+  the next frame whole.
+- **The game's own colours** (`AV_COLOURS`, game_app.cpp). The game's
+  palette is an even cube (0, 51, ... 255), unlike xterm's. Upstream
+  redefined colours 16 to 231 of an xterm-like terminal with OSC 4 and
+  never set them back, so the terminal's palette stayed changed after
+  quitting (and recordings ignore it). Now the colours go out as
+  truecolor where `COLORTERM` is `truecolor` or `24bit`, else as the
+  nearest of the terminal's standard 256.
+- **No messages on the screen.** Startup messages (exec path, base path,
+  terminal type, "MAIN MENU OK") go to stderr only when it is not the
+  terminal, so nothing is left in the scrollback.
+- **`ASCIICKER_FPS`** sets the frame rate (60 by default); the catalog
+  preview is recorded at 25 by `asciiverse/record-preview.sh`.
 
 ## Not changed
 
