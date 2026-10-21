@@ -23,6 +23,12 @@
 #ifdef USE_GPM
 # include <gpm.h>
 #endif
+#ifdef AV_PATHS
+#include <sys/stat.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+#endif
 
 // work around including <netinet/tcp.h>
 // which also defines TCP_CLOSE
@@ -46,6 +52,7 @@
 #include "game_api.h"
 
 
+#ifndef AV_QUICKJS // asciiverse: QuickJS in asciiverse/js.cpp instead of V8
 #ifdef _WIN32
 #pragma comment(lib,"v8_monolith.lib")
 #pragma comment(lib,"Dbghelp.lib")
@@ -73,6 +80,7 @@
 
 #include <libplatform/libplatform.h>
 #include <v8.h>
+#endif // AV_QUICKJS
 
 // FOR GL 
 #include "term.h"
@@ -107,7 +115,40 @@ const char* GetConfPath()
 {
 	if (conf_path[0] == 0)
 	{
-		#if defined(__linux__) || defined(__APPLE__)
+		#if defined(AV_PATHS) && (defined(__linux__) || defined(__APPLE__))
+        // asciiverse: $XDG_DATA_HOME/asciicker/asciicker.cfg, else ~/.local/share;
+        // an existing ~/asciicker.cfg is kept where it is
+        const char* home = getenv("HOME");
+        char old_path[1024+20] = "";
+        if (home && home[0])
+            snprintf(old_path, sizeof(old_path), "%s/asciicker.cfg", home);
+        if (old_path[0] && access(old_path, F_OK) == 0)
+            strcpy(conf_path, old_path);
+        else
+        {
+            char dir[1024] = "";
+            const char* xdg = getenv("XDG_DATA_HOME");
+            if (xdg && xdg[0] == '/')
+                snprintf(dir, sizeof(dir), "%s/asciicker", xdg);
+            else if (home && home[0])
+                snprintf(dir, sizeof(dir), "%s/.local/share/asciicker", home);
+            if (dir[0])
+            {
+                // make each missing folder of the path
+                for (char* p = dir + 1; *p; p++)
+                    if (*p == '/')
+                    {
+                        *p = 0;
+                        mkdir(dir, 0755);
+                        *p = '/';
+                    }
+                mkdir(dir, 0755);
+                snprintf(conf_path, sizeof(conf_path), "%s/asciicker.cfg", dir);
+            }
+            else
+                sprintf(conf_path, "%sasciicker.cfg", base_path);
+        }
+		#elif defined(__linux__) || defined(__APPLE__)
         const char* user_dir = getenv("SNAP_USER_DATA");
         if (!user_dir || user_dir[0]==0)
         {
@@ -205,6 +246,12 @@ int mouse_y = -1;
 int mouse_down = 0;
 int gpm = -1;
 
+#ifdef AV_CENTRE
+// asciiverse: where the picture starts when the terminal is bigger than 160x90
+int av_ox = 0;
+int av_oy = 0;
+#endif
+
 bool GetWH(int wh[2])
 {
     struct winsize size = {0};
@@ -217,6 +264,10 @@ bool GetWH(int wh[2])
             wh[0] = 160;
         if (wh[1] > 90)
             wh[1] = 90;
+        #ifdef AV_CENTRE
+        av_ox = (size.ws_col - wh[0]) / 2;
+        av_oy = (size.ws_row - wh[1]) / 2;
+        #endif
     
     	return true;
     }
@@ -358,7 +409,13 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
     char out[out_size];
     int out_pos = 0;
 
+    #ifdef AV_CENTRE
+    WRITE("\x1B[%d;%dH", av_oy + 1, av_ox + 1);
+    #define AV_NEXT_ROW() WRITE("\x1B[%d;%dH", av_oy + 1 + (h - y), av_ox + 1)
+    #else
     WRITE("\x1B[H");
+    #define AV_NEXT_ROW() WRITE("\n")
+    #endif
 
     int fg16 = 0;
     int bk16 = 1;
@@ -416,7 +473,7 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
             }
 
             if (y)
-                WRITE("\n");
+                AV_NEXT_ROW();
         }
     }
     else
@@ -444,7 +501,7 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
             }
 
             if (y)
-                WRITE("\n");
+                AV_NEXT_ROW();
         }
     }
 
@@ -483,6 +540,18 @@ uint64_t GetTime()
 
 #define GetTime() a3dGetTime()
 
+#endif
+
+#ifdef AV_FPS
+// asciiverse: wait for input until the next frame is due instead of spinning
+static int av_poll_timeout(uint64_t frame_start)
+{
+    int64_t left = (int64_t)(frame_start + 1000000 / AV_FPS) - (int64_t)GetTime();
+    return left > 0 ? (int)(left / 1000) : 0;
+}
+#define AV_POLL_TIMEOUT av_poll_timeout(stamp)
+#else
+#define AV_POLL_TIMEOUT 0
 #endif
 
 Material mat[256];
@@ -1550,6 +1619,25 @@ int main(int argc, char* argv[])
         size_t len = 0;
         #if defined(__linux__) || defined(__APPLE__)
         abs_path = realpath(argv[0], abs_buf);
+        #ifdef AV_PATHS
+        // asciiverse: the binary's own path, also when started through PATH
+        // (realpath of a bare name looks in the current folder)
+        #ifdef __linux__
+        {
+            ssize_t n = readlink("/proc/self/exe", abs_buf, sizeof(abs_buf) - 1);
+            if (n > 0) { abs_buf[n] = 0; abs_path = abs_buf; }
+        }
+        #else
+        {
+            char exe[PATH_MAX];
+            uint32_t size = sizeof(exe);
+            if (_NSGetExecutablePath(exe, &size) == 0 && realpath(exe, abs_buf))
+                abs_path = abs_buf;
+        }
+        #endif
+        if (!abs_path)
+            abs_path = strcpy(abs_buf, "./");
+        #endif
         char* last_slash = strrchr(abs_path, '/');
         if (!last_slash)
             strcpy(base_path,"./");
@@ -2176,7 +2264,7 @@ int main(int argc, char* argv[])
                 pfds[2].fd = jsfd;
                 pfds[2].events = POLLIN|POLL_HUP|POLL_ERR; 
                 pfds[2].revents = 0;
-                poll(pfds, 3, 0); // 0 no timeout, -1 block
+                poll(pfds, 3, AV_POLL_TIMEOUT); // 0 no timeout, -1 block
 
                 if (pfds[2].revents & (POLLHUP|POLLERR))
                 {
@@ -2196,7 +2284,7 @@ int main(int argc, char* argv[])
                 }
             }
             else
-                poll(pfds, 2, 0); // 0 no timeout, -1 block
+                poll(pfds, 2, AV_POLL_TIMEOUT); // 0 no timeout, -1 block
 
 #ifdef USE_GPM
             if (pfds[1].revents & POLLIN)
@@ -2316,7 +2404,7 @@ int main(int argc, char* argv[])
                 pfds[1].fd = jsfd;
                 pfds[1].events = POLLIN|POLLHUP|POLLERR; 
                 pfds[1].revents = 0;
-                poll(pfds, 2, 0); // 0 no timeout, -1 block
+                poll(pfds, 2, AV_POLL_TIMEOUT); // 0 no timeout, -1 block
 
                 if (pfds[1].revents & (POLLHUP|POLLERR))
                 {
@@ -2336,7 +2424,7 @@ int main(int argc, char* argv[])
                 }
             }
             else
-                poll(pfds, 1, 0); // 0 no timeout, -1 block
+                poll(pfds, 1, AV_POLL_TIMEOUT); // 0 no timeout, -1 block
         }
 
         if (pfds[0].revents & POLLIN) 
@@ -2351,11 +2439,13 @@ int main(int argc, char* argv[])
 
             int bytes = stream_bytes + fresh_bytes;
 
+            #ifndef AV_PATHS // asciiverse: no key log in the current folder
             FILE* kl = fopen("keylog.txt","a");
             for (int i=0; i<bytes; i++)
                 fprintf(kl,"0x%02X, ",stream[i]);
             fprintf(kl,"\n");
             fclose(kl);
+            #endif
 
             int i = 0;
             while (i<bytes)
@@ -2639,6 +2729,10 @@ int main(int argc, char* argv[])
                                 {
                                     if (fields==3)
                                     {
+                                        #ifdef AV_CENTRE
+                                        val[1] -= av_ox;
+                                        val[2] -= av_oy;
+                                        #endif
                                         int but = val[0] & 0x3;
 
 										if (val[0] >= 64)
@@ -2942,8 +3036,22 @@ int main(int argc, char* argv[])
         // if changed realloc renderer output
         int nwh[2] = {0,0};
         GetWH(nwh);
+        #ifdef AV_CENTRE
+        {
+            // a picture that only moved (terminal past 160x90) needs a clear too
+            static int last_ox = 0, last_oy = 0;
+            if ((av_ox != last_ox || av_oy != last_oy) && nwh[0]==wh[0] && nwh[1]==wh[1])
+                int w = write(STDOUT_FILENO, "\x1B[0m\x1B[2J", 8);
+            last_ox = av_ox;
+            last_oy = av_oy;
+        }
+        #endif
         if (nwh[0]!=wh[0] || nwh[1]!=wh[1])
         {
+            #ifdef AV_CENTRE
+            // clear what the old picture left around the new one
+            int w = write(STDOUT_FILENO, "\x1B[0m\x1B[2J", 8);
+            #endif
             game->OnSize(nwh[0],nwh[1], 1,1);
 
             wh[0] = nwh[0];
@@ -3050,6 +3158,7 @@ int main(int argc, char* argv[])
 
 //////////////////////////////////////////////////
 
+#ifndef AV_QUICKJS
 v8::Isolate* isolate = 0;
 std::unique_ptr<v8::Platform> platform = 0;
 v8::ArrayBuffer::Allocator* array_buffer_allocator = 0;
@@ -3288,3 +3397,4 @@ void akAPI_Exec(const char* str, int len, bool root)
     uint64_t t1 = GetTime();
     //printf("COMPILE+EXECUTE IN %dus\n",(int)(t1-t0));
 }
+#endif // AV_QUICKJS

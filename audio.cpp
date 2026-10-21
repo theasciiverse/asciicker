@@ -571,6 +571,61 @@ void CallAudio(const uint8_t* data, int size)
 }
 #endif
 
+#ifdef AV_MINIAUDIO
+#ifndef HAS_AUDIO
+// asciiverse: miniaudio (asciiverse/miniaudio) opens what the system has and
+// loads it at run time, so the game runs silent instead of not starting
+
+#include "asciiverse/miniaudio/miniaudio.h"
+
+static ma_device av_device;
+static bool av_device_open = false;
+
+static void av_audio_cb(ma_device* device, void* output, const void* input, ma_uint32 frames)
+{
+    CallQueue* qc = OnAudioCall();
+    while (qc)
+    {
+        DriverAudioCmd(0,qc->data,qc->size);
+        CallQueue* n = qc->next;
+        free(qc);
+        qc = n;
+    }
+    DriverAudioCB(0, (int16_t*)output, frames);
+}
+
+void FreeAudio()
+{
+    if (av_device_open)
+        ma_device_uninit(&av_device);
+    av_device_open = false;
+}
+
+bool InitAudio()
+{
+    LoadAllSamples();
+
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format = ma_format_s16;
+    config.playback.channels = 2;
+    config.sampleRate = 44100;
+    config.dataCallback = av_audio_cb;
+    if (ma_device_init(NULL, &config, &av_device) != MA_SUCCESS)
+        return false;
+    av_device_open = true;
+    if (ma_device_start(&av_device) != MA_SUCCESS)
+    {
+        FreeAudio();
+        return false;
+    }
+    return true;
+}
+
+#define HAS_AUDIO
+
+#endif
+#endif
+
 #ifdef __APPLE__
 #ifndef HAS_AUDIO
 
