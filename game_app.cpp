@@ -250,6 +250,16 @@ int gpm = -1;
 // asciiverse: where the picture starts when the terminal is bigger than 160x90
 int av_ox = 0;
 int av_oy = 0;
+#define AV_OX av_ox
+#define AV_OY av_oy
+#else
+#define AV_OX 0
+#define AV_OY 0
+#endif
+
+#ifdef AV_DIFF
+// asciiverse: set when the screen was cleared, so the next frame is sent whole
+bool av_full_redraw = true;
 #endif
 
 bool GetWH(int wh[2])
@@ -395,6 +405,55 @@ const uint8_t pal_rgba[256][3]=
     {255,255,  0},{255,255, 51},{255,255,102},{255,255,153},{255,255,204},{255,255,255},        
 };
 
+#ifdef AV_COLOURS
+// asciiverse: the game's colours sent as they are (truecolor) where the
+// terminal says it can, else as the nearest of the terminal's standard 256,
+// instead of redefining the terminal's palette (which stayed changed after
+// the game quit, and which recordings and many terminals ignore)
+bool av_truecolor = false;
+uint8_t av_xterm[256];
+
+static void av_init_colours()
+{
+    const char* ct = getenv("COLORTERM");
+    av_truecolor = ct && (strcmp(ct, "truecolor") == 0 || strcmp(ct, "24bit") == 0);
+
+    static const int level[6] = { 0, 95, 135, 175, 215, 255 };
+    for (int i = 0; i < 16; i++)
+        av_xterm[i] = i;
+    for (int i = 16; i < 256; i++)
+    {
+        int best = 16, best_d = 1 << 30;
+        for (int j = 16; j < 256; j++)
+        {
+            int r, g, b;
+            if (j < 232)
+            {
+                r = level[(j - 16) / 36];
+                g = level[(j - 16) / 6 % 6];
+                b = level[(j - 16) % 6];
+            }
+            else
+                r = g = b = 8 + (j - 232) * 10;
+            int dr = r - pal_rgba[i][0], dg = g - pal_rgba[i][1], db = b - pal_rgba[i][2];
+            int d = dr * dr + dg * dg + db * db;
+            if (d < best_d)
+            {
+                best_d = d;
+                best = j;
+            }
+        }
+        av_xterm[i] = best;
+    }
+}
+
+#define AV_FG(c) do { if (av_truecolor) WRITE("\x1B[38;2;%d;%d;%dm", pal_rgba[c][0], pal_rgba[c][1], pal_rgba[c][2]); \
+                      else WRITE("\x1B[38;5;%dm", av_xterm[c]); } while (0)
+#define AV_BK(c) do { if (av_truecolor) WRITE("\x1B[48;2;%d;%d;%dm", pal_rgba[c][0], pal_rgba[c][1], pal_rgba[c][2]); \
+                      else WRITE("\x1B[48;5;%dm", av_xterm[c]); } while (0)
+#define AV_CELL() do { if (ptr->fg != fg) AV_FG(ptr->fg); if (ptr->bk != bk) AV_BK(ptr->bk); WRITE("%s", chr); } while (0)
+#endif
+
 void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
 {
     // heading
@@ -478,6 +537,58 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
     }
     else
     {
+        #ifdef AV_DIFF
+        // asciiverse: send only the cells that changed since the last frame
+        // (a whole frame was about 45 KB at 100x30, 60 times a second)
+        static AnsiCell* prev = 0;
+        static int prev_w = 0, prev_h = 0;
+        if (prev && prev_w == w && prev_h == h && !av_full_redraw)
+        {
+            for (int y = h-1; y>=0; y--)
+            {
+                AnsiCell* ptr = buf + y*w;
+                AnsiCell* old = prev + y*w;
+                bool at = false; // cursor is right after the last cell sent
+                for (int x=0; x<w; x++,ptr++,old++)
+                {
+                    if (ptr->fg == old->fg && ptr->bk == old->bk && ptr->gl == old->gl)
+                    {
+                        at = false;
+                        continue;
+                    }
+                    if (!at)
+                        WRITE("\x1B[%d;%dH", AV_OY + 1 + (h-1-y), AV_OX + 1 + x);
+                    at = true;
+                    const char* chr = utf[ptr->gl];
+                    #ifdef AV_COLOURS
+                    AV_CELL();
+                    #else
+                    if (ptr->fg != fg)
+                        if (ptr->bk != bk)
+                            WRITE("\x1B[38;5;%d;48;5;%dm%s",ptr->fg,ptr->bk,chr);
+                        else
+                            WRITE("\x1B[38;5;%dm%s",ptr->fg,chr);
+                    else
+                        if (ptr->bk != bk)
+                            WRITE("\x1B[48;5;%dm%s",ptr->bk,chr);
+                        else
+                            WRITE("%s",chr);
+                    #endif
+                    bk=ptr->bk;
+                    fg=ptr->fg;
+                }
+            }
+            memcpy(prev, buf, w*h*sizeof(AnsiCell));
+            FLUSH();
+            return;
+        }
+        prev = (AnsiCell*)realloc(prev, w*h*sizeof(AnsiCell));
+        memcpy(prev, buf, w*h*sizeof(AnsiCell));
+        prev_w = w;
+        prev_h = h;
+        av_full_redraw = false;
+        #endif
+
         for (int y = h-1; y>=0; y--)
         {
             AnsiCell* ptr = buf + y*w;
@@ -485,6 +596,9 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
             {
                 //const char* chr = (x+y)&1 ? "X":"Y";
                 const char* chr = utf[ptr->gl];
+                #ifdef AV_COLOURS
+                AV_CELL();
+                #else
                 if (ptr->fg != fg)
                     if (ptr->bk != bk)
                         WRITE("\x1B[38;5;%d;48;5;%dm%s",ptr->fg,ptr->bk,chr);
@@ -495,6 +609,7 @@ void Print(AnsiCell* buf, int w, int h, const char utf[256][4])
                         WRITE("\x1B[48;5;%dm%s",ptr->bk,chr);
                     else
                         WRITE("%s",chr);
+                #endif
 
                 bk=ptr->bk;
                 fg=ptr->fg;
@@ -543,10 +658,19 @@ uint64_t GetTime()
 #endif
 
 #ifdef AV_FPS
-// asciiverse: wait for input until the next frame is due instead of spinning
+// asciiverse: wait for input until the next frame is due instead of spinning;
+// ASCIICKER_FPS sets another rate (the catalog preview is recorded at 30)
 static int av_poll_timeout(uint64_t frame_start)
 {
-    int64_t left = (int64_t)(frame_start + 1000000 / AV_FPS) - (int64_t)GetTime();
+    static int fps = 0;
+    if (!fps)
+    {
+        const char* env = getenv("ASCIICKER_FPS");
+        fps = env ? atoi(env) : 0;
+        if (fps < 1 || fps > 1000)
+            fps = AV_FPS;
+    }
+    int64_t left = (int64_t)(frame_start + 1000000 / fps) - (int64_t)GetTime();
     return left > 0 ? (int)(left / 1000) : 0;
 }
 #define AV_POLL_TIMEOUT av_poll_timeout(stamp)
@@ -1684,8 +1808,16 @@ int main(int argc, char* argv[])
 		}
     }
 
+    #ifdef AV_PATHS // asciiverse: messages only to a log, not onto the screen
+    if (!isatty(2)) fprintf(stderr, "exec path: %s\n", argv[0]);
+    #else
     printf("exec path: %s\n", argv[0]);
+    #endif
+    #ifdef AV_PATHS // asciiverse: messages only to a log, not onto the screen
+    if (!isatty(2)) fprintf(stderr, "BASE PATH: %s\n", base_path);
+    #else
     printf("BASE PATH: %s\n", base_path);
+    #endif
 
 	InitAudio();
 
@@ -2003,7 +2135,11 @@ int main(int argc, char* argv[])
     if (!term_env)
         term_env = "";
 
+    #ifdef AV_PATHS // asciiverse: messages only to a log, not onto the screen
+    if (!isatty(2)) fprintf(stderr, "TERM=%s\n",term_env);
+    #else
     printf("TERM=%s\n",term_env);
+    #endif
 
     if (strcmp( term_env, "linux" ) == 0)
     {
@@ -2054,7 +2190,11 @@ int main(int argc, char* argv[])
     else
     if (strncmp(term_env,"xterm",5)==0)
     {
-        printf("VIRTUAL TERMINAL EMULGLATOR\n");
+        #ifdef AV_PATHS // asciiverse: messages only to a log, not onto the screen
+    if (!isatty(2)) fprintf(stderr, "VIRTUAL TERMINAL EMULGLATOR\n");
+    #else
+    printf("VIRTUAL TERMINAL EMULGLATOR\n");
+    #endif
 
         /*
             1.  MANDATORY: install -gumix-*... fonts
@@ -2103,15 +2243,25 @@ int main(int argc, char* argv[])
         */
 
         // palette setup
+        #ifndef AV_COLOURS
         for (int col = 16; col<232; col++)
         {
             const uint8_t* c = pal_rgba[col];
             printf("\x1B]4;%d;#%02x%02x%02x\a", col, c[0],c[1],c[2]);
         }
         printf("\n");
+        #endif
     }
     else
-        printf("UNKNOWN TERMINAL\n");
+        #ifdef AV_PATHS // asciiverse: messages only to a log, not onto the screen
+    if (!isatty(2)) fprintf(stderr, "UNKNOWN TERMINAL\n");
+    #else
+    printf("UNKNOWN TERMINAL\n");
+    #endif
+
+    #ifdef AV_COLOURS
+    av_init_colours();
+    #endif
 
     // try opening js device
     int gamepad_axes = 0;
@@ -3041,7 +3191,12 @@ int main(int argc, char* argv[])
             // a picture that only moved (terminal past 160x90) needs a clear too
             static int last_ox = 0, last_oy = 0;
             if ((av_ox != last_ox || av_oy != last_oy) && nwh[0]==wh[0] && nwh[1]==wh[1])
+            {
                 int w = write(STDOUT_FILENO, "\x1B[0m\x1B[2J", 8);
+                #ifdef AV_DIFF
+                av_full_redraw = true;
+                #endif
+            }
             last_ox = av_ox;
             last_oy = av_oy;
         }
@@ -3051,6 +3206,9 @@ int main(int argc, char* argv[])
             #ifdef AV_CENTRE
             // clear what the old picture left around the new one
             int w = write(STDOUT_FILENO, "\x1B[0m\x1B[2J", 8);
+            #endif
+            #ifdef AV_DIFF
+            av_full_redraw = true;
             #endif
             game->OnSize(nwh[0],nwh[1], 1,1);
 
