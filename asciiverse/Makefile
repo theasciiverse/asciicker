@@ -16,12 +16,12 @@ OBJ := $(OUT)/obj
 
 GAME := game.cpp mainmenu.cpp game_api.cpp gamepad.cpp font1.cpp enemygen.cpp \
 	game_app.cpp network.cpp render.cpp terrain.cpp world.cpp inventory.cpp \
-	physics.cpp sprite.cpp rgba8.cpp audio.cpp stb_vorbis.cpp asciiverse/js.cpp
+	physics.cpp sprite.cpp rgba8.cpp audio.cpp stb_vorbis.cpp asciiverse/js.cpp asciiverse/help.cpp
 GAME_C := upng.c tinfl.c asciiverse/miniaudio/miniaudio.c
 QJS := asciiverse/quickjs/quickjs.c asciiverse/quickjs/libregexp.c \
 	asciiverse/quickjs/libunicode.c asciiverse/quickjs/dtoa.c
 
-DEFS := -DGAME -DPURE_TERM -DAV_QUICKJS -DAV_MINIAUDIO -DAV_PATHS -DAV_FPS=60 -DAV_CENTRE -DAV_DIFF -DAV_COLOURS -DAV_GAMEPAD -DAV_ESC_MENU -pthread
+DEFS := -DGAME -DPURE_TERM -DAV_QUICKJS -DAV_MINIAUDIO -DAV_PATHS -DAV_FPS=60 -DAV_CENTRE -DAV_DIFF -DAV_COLOURS -DAV_GAMEPAD -DAV_ESC_MENU -DAV_HELP -DAV_KITTY -DAV_KEYS -pthread
 
 OBJS := $(GAME:%.cpp=$(OBJ)/%.o) $(GAME_C:%.c=$(OBJ)/%.o) $(QJS:%.c=$(OBJ)/%.o)
 

@@ -23,6 +23,10 @@
 #ifdef USE_GPM
 # include <gpm.h>
 #endif
+#include <ctype.h>
+#ifdef AV_KITTY
+extern bool av_kitty; // see av_kitty_detect()
+#endif
 #ifdef AV_PATHS
 #include <sys/stat.h>
 #ifdef __APPLE__
@@ -326,9 +330,18 @@ void SetScreen(bool alt)
 
         tcsetattr(STDIN_FILENO, TCSANOW, &t);
 		int w = write(STDOUT_FILENO,on_str,on_len);
+        #ifdef AV_KITTY
+        // disambiguate, event types, all keys as codes, their text; focus events
+        if (av_kitty)
+            w = write(STDOUT_FILENO, "\x1B[>27u\x1B[?1004h", 14);
+        #endif
     }
 	else
     {
+        #ifdef AV_KITTY
+        if (av_kitty)
+            int k = write(STDOUT_FILENO, "\x1B[<u\x1B[?1004l", 11);
+        #endif
         tcsetattr(STDIN_FILENO, TCSANOW, &old);
 		int w = write(STDOUT_FILENO,off_str,off_len);
 
@@ -685,6 +698,229 @@ static int av_poll_timeout(uint64_t frame_start)
 #define AV_POLL_TIMEOUT av_poll_timeout(stamp)
 #else
 #define AV_POLL_TIMEOUT 0
+#endif
+
+#ifdef AV_KITTY
+// asciiverse: the kitty keyboard protocol (kitty, Ghostty, foot, WezTerm and
+// others). With it the terminal reports every key's press, repeat and
+// release, so the game gets KEYB_DOWN and KEYB_UP as in its window builds and
+// held keys walk smoothly; without it keys are guessed from key repeat.
+// Upstream's own kitty mode (the old ?2017 protocol) is switched off in its
+// code and filled an array nothing read.
+bool av_kitty = false;
+static bool av_held[A3D_MAPEND];
+
+// ask the terminal (CSI ? u) before the game starts; a terminal that knows
+// the protocol answers before its reply to CSI c, which every terminal sends
+static bool av_kitty_detect()
+{
+    const char* env = getenv("ASCIICKER_KITTY");   // 0: off, 1: on without asking
+    if (env && env[0] == '0')
+        return false;
+    if (env && env[0] == '1')
+        return true;
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
+        return false;
+    struct termios old, t;
+    tcgetattr(STDIN_FILENO, &old);
+    t = old;
+    t.c_lflag &= ~(ICANON | ECHO);
+    t.c_cc[VMIN] = 0;
+    t.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    int w = write(STDOUT_FILENO, "\x1B[?u\x1B[c", 7);
+    char buf[512];
+    int len = 0;
+    bool kitty = false, done = false;
+    uint64_t t0 = GetTime();
+    while (!done && GetTime() - t0 < 500000 && len < (int)sizeof(buf) - 1)
+    {
+        struct pollfd p = { STDIN_FILENO, POLLIN, 0 };
+        if (poll(&p, 1, 50) <= 0)
+            continue;
+        int n = read(STDIN_FILENO, buf + len, sizeof(buf) - 1 - len);
+        if (n <= 0)
+            continue;
+        len += n;
+        buf[len] = 0;
+        for (char* q = strstr(buf, "\x1B[?"); q; q = strstr(q + 1, "\x1B[?"))
+        {
+            char* e = q + 3;
+            while (*e && (isdigit((unsigned char)*e) || *e == ';'))
+                e++;
+            if (*e == 'u')
+                kitty = true;
+            if (*e == 'c')
+                done = true;
+        }
+    }
+    tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    return kitty;
+}
+
+static int av_kitty_a3d(int code, char fin)
+{
+    if (fin == 'u')
+    {
+        if (code >= 'a' && code <= 'z') return A3D_A + code - 'a';
+        if (code >= 'A' && code <= 'Z') return A3D_A + code - 'A';
+        if (code >= '0' && code <= '9') return A3D_0 + code - '0';
+        switch (code)
+        {
+            case 13: return A3D_ENTER;
+            case 9: return A3D_TAB;
+            case 127: return A3D_BACKSPACE;
+            case 27: return A3D_ESCAPE;
+            case 32: return A3D_SPACE;
+            case 57414: return A3D_NUMPAD_ENTER;
+            case 57441: return A3D_LSHIFT;
+            case 57442: return A3D_LCTRL;
+            case 57443: return A3D_LALT;
+            case 57447: return A3D_RSHIFT;
+            case 57448: return A3D_RCTRL;
+            case 57449: return A3D_RALT;
+        }
+        if (code >= 57399 && code <= 57408) return A3D_NUMPAD_0 + code - 57399;
+        // punctuation goes to the game as characters only, as it always did
+        // in the terminal (the window builds' debug keys sit on , . /)
+        return 0;
+    }
+    switch (fin)
+    {
+        case 'A': return A3D_UP;
+        case 'B': return A3D_DOWN;
+        case 'C': return A3D_RIGHT;
+        case 'D': return A3D_LEFT;
+        case 'H': return A3D_HOME;
+        case 'F': return A3D_END;
+        case 'P': return A3D_F1;
+        case 'Q': return A3D_F2;
+        case 'S': return A3D_F4;
+    }
+    if (fin == '~')
+        switch (code)
+        {
+            case 2: return A3D_INSERT;
+            case 3: return A3D_DELETE;
+            case 5: return A3D_PAGEUP;
+            case 6: return A3D_PAGEDOWN;
+            case 7: return A3D_HOME;
+            case 8: return A3D_END;
+            case 11: return A3D_F1;
+            case 12: return A3D_F2;
+            case 13: return A3D_F3;
+            case 14: return A3D_F4;
+            case 15: return A3D_F5;
+            case 17: return A3D_F6;
+            case 18: return A3D_F7;
+            case 19: return A3D_F8;
+            case 20: return A3D_F9;
+            case 21: return A3D_F10;
+            case 23: return A3D_F11;
+            case 24: return A3D_F12;
+        }
+    return 0;
+}
+
+static void av_kitty_release_all()
+{
+    for (int a = 0; a < A3D_MAPEND; a++)
+        if (av_held[a])
+        {
+            av_held[a] = false;
+            game->OnKeyb(GAME_KEYB::KEYB_UP, a);
+        }
+}
+
+// one key event at s (CSI ... u, CSI 1;m:e A and the like, focus in/out);
+// returns the bytes used, 0 when it is something else, -1 when incomplete
+static int av_kitty_key(const char* s, int n)
+{
+    if (n < 3)
+        return -1;
+    if (s[2] == '<' || s[2] == '?' || s[2] == '>' || s[2] == 'M')
+        return 0;               // mouse and replies: the parser below
+    if (s[2] == 'I')
+        return 3;               // focus in
+    if (s[2] == 'O')
+    {
+        av_kitty_release_all(); // focus out: no key stays held
+        return 3;
+    }
+    int e = 2;
+    while (e < n && (isdigit((unsigned char)s[e]) || s[e] == ';' || s[e] == ':'))
+        e++;
+    if (e >= n)
+        return -1;
+    char fin = s[e];
+    if (!strchr("uABCDHFPQS~", fin))
+        return 0;
+
+    // fields: code[:alternates] ; mods[:event] ; text[:text...]
+    int field = 0, sub = 0, val = -1;
+    int code = 1, mods = 1, event = 1, text[8], texts = 0;
+    for (int k = 2; k <= e; k++)
+    {
+        char c = s[k];
+        if (isdigit((unsigned char)c))
+        {
+            val = (val < 0 ? 0 : val * 10) + (c - '0');
+            continue;
+        }
+        if (val >= 0)
+        {
+            if (field == 0 && sub == 0) code = val;
+            if (field == 1 && sub == 0) mods = val;
+            if (field == 1 && sub == 1) event = val;
+            if (field == 2 && texts < 8) text[texts++] = val;
+        }
+        val = -1;
+        if (c == ':') sub++;
+        else if (c == ';') { field++; sub = 0; }
+    }
+    mods -= 1;
+
+    if (fin == 'u' && code == 'c' && (mods & 4) && event != 3)
+        exit_handler(SIGINT);   // Ctrl+C no longer sends SIGINT in this mode
+
+    int a3d = av_kitty_a3d(code, fin);
+    if (event == 3)
+    {
+        if (a3d && av_held[a3d])
+        {
+            av_held[a3d] = false;
+            game->OnKeyb(GAME_KEYB::KEYB_UP, a3d);
+        }
+        return e + 1;
+    }
+    if (a3d)
+    {
+        if (event == 2 && av_held[a3d])
+            game->OnKeyb(GAME_KEYB::KEYB_DOWN, a3d | A3D_AUTO_REPEAT);
+        else
+        {
+            av_held[a3d] = true;
+            game->OnKeyb(GAME_KEYB::KEYB_DOWN, a3d);
+        }
+    }
+    // the text the key types, as the terminal always sent it
+    if (texts)
+    {
+        for (int t = 0; t < texts; t++)
+            if (text[t] >= 32 && text[t] < 127)
+                game->OnKeyb(GAME_KEYB::KEYB_CHAR, text[t]);
+    }
+    else if (!(mods & 6))
+    {
+        if (fin == 'u' && code == 13)
+            game->OnKeyb(GAME_KEYB::KEYB_CHAR, '\r');
+        else if (fin == 'u' && code == 127)
+            game->OnKeyb(GAME_KEYB::KEYB_CHAR, 8);
+        else if (fin == 'u' && code >= 32 && code < 127)
+            game->OnKeyb(GAME_KEYB::KEYB_CHAR, (mods & 1) && code >= 'a' && code <= 'z' ? code - 32 : code);
+    }
+    return e + 1;
+}
 #endif
 
 Material mat[256];
@@ -2304,6 +2540,9 @@ int main(int argc, char* argv[])
     uint8_t gamepad_mapping[256] = {0};
     int jsfd = scan_js(gamepad_name,&gamepad_axes,&gamepad_buttons,gamepad_mapping);
 
+    #ifdef AV_KITTY
+    av_kitty = av_kitty_detect();
+    #endif
     SetScreen(true);
 
     int signals[]={SIGTERM,SIGHUP,SIGINT,SIGTRAP,SIGILL,SIGABRT,SIGKILL,0};
@@ -2634,6 +2873,19 @@ int main(int argc, char* argv[])
             int i = 0;
             while (i<bytes)
             {
+                #ifdef AV_KITTY
+                if (av_kitty && stream[i] == 0x1B && i+1 < bytes && stream[i+1] == '[')
+                {
+                    int used = av_kitty_key(stream + i, bytes - i);
+                    if (used < 0)
+                        break;          // the rest comes with the next read
+                    if (used > 0)
+                    {
+                        i += used;
+                        continue;
+                    }
+                }
+                #endif
                 int j=i;
 
                 int type = 0, mods = 0;
@@ -2662,7 +2914,16 @@ int main(int argc, char* argv[])
                     if (stream[i] == 127) // backspace (8) is encoded as del (127)
                         game->OnKeyb(GAME_KEYB::KEYB_CHAR, 8);
                     else
+                    {
                         game->OnKeyb(GAME_KEYB::KEYB_CHAR, stream[i]);
+                        #ifdef AV_KEYS
+                        // asciiverse: WASD walk and Q/E turn here too (they only
+                        // reached the game as characters, which it reads for chat)
+                        const char* moves = strchr("wasdqeWASDQE", stream[i]);
+                        if (moves && stream[i])
+                            game->OnKeyb(GAME_KEYB::KEYB_PRESS, A3D_A + (tolower(stream[i]) - 'a'));
+                        #endif
+                    }
                     i++;
                     continue;
                 }

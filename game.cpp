@@ -17,6 +17,12 @@
 #include "lexer.h"
 
 #include "mainmenu.h"
+#ifdef AV_HELP
+#include "asciiverse/help.h"
+#endif
+#ifdef AV_KEYS
+static bool av_press_repeated = false; // see Game::Render
+#endif
 
 uint8_t ConvertToCP437(uint32_t uc)
 {
@@ -4799,7 +4805,15 @@ void Game::Render(uint64_t _stamp, AnsiCell* ptr, int width, int height)
 		}
 	}
 
+	#ifdef AV_KEYS
+	// asciiverse: a key without a release (terminals without the kitty
+	// protocol) is held until its key repeat stops: the first repeat comes
+	// after about half a second, the next ones every 30 to 50 ms. At 50 ms
+	// upstream let go before the first repeat, so walking stuttered
+	if (PressKey && _stamp - PressStamp > (av_press_repeated ? 120000 : 560000))
+	#else
 	if (PressKey && _stamp - PressStamp > 50000 /*500000*/)
+	#endif
 	{
 		// in render(): 
 		// if there is stored key and time elapsed since it was pressed > thresh
@@ -4840,6 +4854,9 @@ void Game::Render(uint64_t _stamp, AnsiCell* ptr, int width, int height)
 	if (main_menu)
 	{
 		MainMenu_Render(_stamp, ptr, width, height);
+		#ifdef AV_HELP
+		AV_PaintHelp(ptr, width, height);
+		#endif
 		return;
 	}
 
@@ -6874,6 +6891,9 @@ void Game::Render(uint64_t _stamp, AnsiCell* ptr, int width, int height)
 		PaintGamePad(ptr, width, height, stamp);
 		
 	PaintMenu(ptr, width, height);
+	#ifdef AV_HELP
+	AV_PaintHelp(ptr, width, height);
+	#endif
 	/*
 	Font1Paint(ptr, width, height, 10, 22, "0.123456789\nZOMBEK DOMBEK\nZIBALABULGAMUF?", 0);
 	Font1Paint(ptr, width, height, 10, 10, "0.123456789\nZOMBEK DOMBEK\nZIBALABULGAMUF?", 1);
@@ -6932,6 +6952,12 @@ void Game::OnSize(int w, int h, int fw, int fh)
 
 void Game::OnKeyb(GAME_KEYB keyb, int key)
 {
+	#ifdef AV_HELP
+	// asciiverse: the help panel takes the first key; H or ? open it during play
+	if (av_help || !main_menu && menu_depth < 0 && !player.talk_box && !show_gamepad)
+		if (AV_HelpKeyb(keyb, key))
+			return;
+	#endif
 	/*
 	if (keyb==KEYB_CHAR)
 	{
@@ -7030,6 +7056,16 @@ void Game::OnKeyb(GAME_KEYB keyb, int key)
 
 		bool auto_rep = (key & A3D_AUTO_REPEAT) != 0;
 		key &= ~A3D_AUTO_REPEAT;
+
+		#ifdef AV_ESC_MENU
+		// asciiverse: Esc opens the game menu (key downs come from the kitty
+		// keyboard protocol in the terminal)
+		if (key == A3D_ESCAPE && !auto_rep && !player.talk_box && !show_inventory)
+		{
+			ToggleMenu(0);
+			return;
+		}
+		#endif
 
 		if ((key == A3D_TAB || key == A3D_ESCAPE) && !auto_rep)
 		{
@@ -7575,6 +7611,9 @@ void Game::OnKeyb(GAME_KEYB keyb, int key)
 				// here we can filter keys
 				if (key != A3D_TAB && (key<A3D_F5 || key>A3D_F8))
 				{
+					#ifdef AV_KEYS
+					av_press_repeated = false;
+					#endif
 					PressKey = key;
 					PressStamp = stamp;
 					OnKeyb(GAME_KEYB::KEYB_DOWN, PressKey);
@@ -7583,6 +7622,9 @@ void Game::OnKeyb(GAME_KEYB keyb, int key)
 			else
 			{
 				PressStamp = stamp; // - 500000 + 50000;
+				#ifdef AV_KEYS
+				av_press_repeated = true;
+				#endif
 			}
 		}
 
@@ -8718,6 +8760,10 @@ int FirstFree(int size, int* arr)
 
 void Game::OnMouse(GAME_MOUSE mouse, int x, int y)
 {
+	#ifdef AV_HELP
+	if (AV_HelpMouse(mouse))
+		return;
+	#endif
 	/*
 	if (mouse==MOUSE_LEFT_BUT_DOWN)
 	{
@@ -9983,10 +10029,20 @@ static const Menu settings_menu[]=
 };
 */
 
+#ifdef AV_HELP
+static void menu_help_keyboard(Game* g) { av_help = 1; }
+static void menu_help_mouse(Game* g) { av_help = 2; }
+#endif
+
 static const Menu controls_menu[]=
 {
+	#ifdef AV_HELP
+	{"KEYBOARD", 0, menu_help_keyboard, 0},
+	{"MOUSE", 0, menu_help_mouse, 0},
+	#else
 	{"KEYBOARD", 0, 0, 0},
 	{"MOUSE", 0, 0, 0},
+	#endif
 	{"TOUCH", 0, 0, 0},
 	{"GAMEPAD", 0, menu_gamepad, 0},
 	{0}

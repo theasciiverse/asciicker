@@ -78,6 +78,27 @@ as before.
 - **Esc opens the game menu** (`AV_ESC_MENU`, game.cpp) when no chat box
   or inventory is open, and closes it again; in the terminal only `\`
   did.
+- **The kitty keyboard protocol** (`AV_KITTY`, game_app.cpp). At start
+  the game asks the terminal (`CSI ? u`); kitty, Ghostty, foot, WezTerm
+  and others answer, and then every key arrives with its press, repeat
+  and release, which the game gets as `KEYB_DOWN` and `KEYB_UP` as in its
+  window builds: held keys walk and turn smoothly, and keys are let go
+  when the window loses focus. Punctuation goes to the game as characters
+  only, as it always did in the terminal (the window builds' debug mount
+  keys sit on `,` `.` `/`). Ctrl+C still quits. `ASCIICKER_KITTY=0`
+  turns it off, `=1` on without asking. Upstream's own kitty mode, for
+  kitty's old `?2017` protocol, is switched off in its code and filled an
+  array nothing read.
+- **Keys without the protocol** (`AV_KEYS`). WASD and Q/E reached the game
+  only as characters, which it reads for chat, so only the arrows walked
+  and the view could not be turned from the keyboard; they now walk and
+  turn. A key with no release is held until its repeat stops (560 ms
+  until the first repeat, 120 ms after), where upstream let go after
+  50 ms, before the first repeat came, so walking stuttered.
+- **Help panels** (`AV_HELP`, `asciiverse/help.cpp`). CONTROLS >
+  KEYBOARD and MOUSE, empty menu entries upstream, show the keys and the
+  mouse controls, in the main menu and the game menu; H or ? shows the
+  keys during play. Any key or click closes them.
 - **`ASCIICKER_FPS`** sets the frame rate (60 by default); the catalog
   preview is recorded at 25 by `asciiverse/record-preview.sh`.
 

@@ -10,6 +10,10 @@
 #include "audio.h"
 #include "platform.h"
 #include "upng.h"
+#ifdef AV_HELP
+#include "game.h"
+#include "asciiverse/help.h"
+#endif
 
 extern Game* game;
 extern Terrain* terrain;
@@ -1727,10 +1731,20 @@ static void main_menu_gamepad(MainMenuContext* m)
 	GamePadOpen(main_menu_gamepad_close,0);
 }
 
+#ifdef AV_HELP
+static void main_menu_help_keyboard(MainMenuContext* m) { av_help = 1; }
+static void main_menu_help_mouse(MainMenuContext* m) { av_help = 2; }
+#endif
+
 static const MainMenu main_menu_controls[]=
 {
+	#ifdef AV_HELP
+	{"KEYBOARD", 0, main_menu_help_keyboard, 0, /*cookie*/0},
+	{"MOUSE", 0, main_menu_help_mouse, 0, /*cookie*/0},
+	#else
 	{"KEYBOARD", 0, 0, 0, /*cookie*/0},
 	{"MOUSE", 0, 0, 0, /*cookie*/0},
+	#endif
 	{"TOUCH", 0, 0, 0, /*cookie*/0},
 	{"GAMEPAD", 0, main_menu_gamepad, 0, /*cookie*/0},
 	{0}
