@@ -47,10 +47,13 @@ as before.
   without waiting and drew as fast as it could (about 480 frames a second,
   a whole core); it now waits for input until the next frame is due.
   About a sixth of a core at 100x30.
-- **Centred** (`AV_CENTRE`, game_app.cpp). The game draws at most 160x90;
-  on a bigger terminal the picture is centred instead of in the top left
-  corner, mouse positions are moved to match, and a resize clears what is
-  left around it.
+- **Fills big terminals** (`AV_CENTRE`, game_app.cpp, mainmenu.cpp).
+  Upstream stopped the picture at 160x90 and drew it in the top left
+  corner; it now grows up to 320x180, the size `Print()`'s output buffer
+  is made for, and is centred beyond that, with mouse positions moved to
+  match and a resize clearing what is left around it. The main menu's
+  dithering rows were fixed arrays of 160 columns, which a wider menu ran
+  past (heap corruption at 256x90); they are 320 now.
 - **Only changed cells** (`AV_DIFF`, game_app.cpp). Each frame sends only
   the cells that changed since the last one; upstream sent the whole
   screen every frame (about 45 KB at 100x30). A resize or a clear sends

@@ -580,9 +580,15 @@ static void ScaleImg(const uint16_t* src, int src_w, int src_h, const float src_
 
     #ifdef DITHERING
     // DITHERING STUFF
+    #ifdef AV_CENTRE // asciiverse: as wide as the picture can be (320), not 160
+    int16_t e0[320][3] = {{0}};
+    int16_t e1[320][3] = {{0}};
+    int16_t e2[320][3] = {{0}};
+    #else
     int16_t e0[160][3] = {{0}};
     int16_t e1[160][3] = {{0}};
     int16_t e2[160][3] = {{0}};
+    #endif
 
     // [0]-current line, [1]-next line, [2]-nextnext line
     int16_t (*dither[3])[3] = {e0,e1,e2};

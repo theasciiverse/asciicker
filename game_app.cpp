@@ -247,7 +247,7 @@ int mouse_down = 0;
 int gpm = -1;
 
 #ifdef AV_CENTRE
-// asciiverse: where the picture starts when the terminal is bigger than 160x90
+// asciiverse: where the picture starts when the terminal is bigger than 320x180
 int av_ox = 0;
 int av_oy = 0;
 #define AV_OX av_ox
@@ -270,10 +270,19 @@ bool GetWH(int wh[2])
         wh[0] = size.ws_col;
         wh[1] = size.ws_row;
 
+        #ifdef AV_CENTRE
+        // asciiverse: fill the terminal up to 320x180, the size Print()'s
+        // output buffer is made for (upstream stopped at 160x90)
+        if (wh[0] > 320)
+            wh[0] = 320;
+        if (wh[1] > 180)
+            wh[1] = 180;
+        #else
         if (wh[0] > 160)
             wh[0] = 160;
         if (wh[1] > 90)
             wh[1] = 90;
+        #endif
         #ifdef AV_CENTRE
         av_ox = (size.ws_col - wh[0]) / 2;
         av_oy = (size.ws_row - wh[1]) / 2;
