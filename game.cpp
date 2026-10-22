@@ -7462,6 +7462,16 @@ void Game::OnKeyb(GAME_KEYB keyb, int key)
 			}
 		}
 
+		#ifdef AV_ESC_MENU
+		// asciiverse: Esc opens the game menu when nothing else is open
+		// (in the terminal only \ did); in the menu it closes it again
+		if (key == A3D_ESCAPE && !player.talk_box && !show_inventory)
+		{
+			ToggleMenu(0);
+			return;
+		}
+		#endif
+
 		// it is like a KEYB_CHAR (not producing releases) but for non-printable keys
 		// main input from terminals 
 		// ....

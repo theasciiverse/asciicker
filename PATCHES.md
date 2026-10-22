@@ -68,6 +68,16 @@ as before.
 - **No messages on the screen.** Startup messages (exec path, base path,
   terminal type, "MAIN MENU OK") go to stderr only when it is not the
   terminal, so nothing is left in the scrollback.
+- **Gamepads only** (`AV_GAMEPAD`, game_app.cpp). The game took the
+  first `/dev/input/js*` it could open as a gamepad. Graphics tablet pads
+  (a Wacom Cintiq's pad and ExpressKey Remote) and 3D mice (3Dconnexion)
+  are joystick devices too, and their resting axes turned the camera
+  without end. Only devices with gamepad or joystick buttons (0x120 to
+  0x13f) and no digitizer buttons (0x140 to 0x14f, which the Wacom pads
+  report even while claiming gamepad buttons) are used now.
+- **Esc opens the game menu** (`AV_ESC_MENU`, game.cpp) when no chat box
+  or inventory is open, and closes it again; in the terminal only `\`
+  did.
 - **`ASCIICKER_FPS`** sets the frame rate (60 by default); the catalog
   preview is recorded at 25 by `asciiverse/record-preview.sh`.
 

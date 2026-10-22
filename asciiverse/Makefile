@@ -21,7 +21,7 @@ GAME_C := upng.c tinfl.c asciiverse/miniaudio/miniaudio.c
 QJS := asciiverse/quickjs/quickjs.c asciiverse/quickjs/libregexp.c \
 	asciiverse/quickjs/libunicode.c asciiverse/quickjs/dtoa.c
 
-DEFS := -DGAME -DPURE_TERM -DAV_QUICKJS -DAV_MINIAUDIO -DAV_PATHS -DAV_FPS=60 -DAV_CENTRE -DAV_DIFF -DAV_COLOURS -pthread
+DEFS := -DGAME -DPURE_TERM -DAV_QUICKJS -DAV_MINIAUDIO -DAV_PATHS -DAV_FPS=60 -DAV_CENTRE -DAV_DIFF -DAV_COLOURS -DAV_GAMEPAD -DAV_ESC_MENU -pthread
 
 OBJS := $(GAME:%.cpp=$(OBJ)/%.o) $(GAME_C:%.c=$(OBJ)/%.o) $(QJS:%.c=$(OBJ)/%.o)
 

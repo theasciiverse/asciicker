@@ -1463,6 +1463,31 @@ int scan_js(char* gamepad_name, int* gamepad_axes, int* gamepad_buttons, uint8_t
         memset(js_axmap,-1,sizeof(js_axmap));
         int axmap_res = ioctl(fd, JSIOCGAXMAP, js_axmap);
 
+        #ifdef AV_GAMEPAD
+        // asciiverse: only gamepads and joysticks. Tablet pads (Wacom) and
+        // 3D mice (3Dconnexion) are joystick devices too, and their axes
+        // turned the camera for good. A gamepad has BTN_JOYSTICK or
+        // BTN_GAMEPAD buttons (0x120 to 0x13f) and no digitizer buttons
+        // (0x140 to 0x14f, BTN_STYLUS and the like), which Wacom pads
+        // report even when they also claim gamepad buttons
+        {
+            bool pad = false, digi = false;
+            for (int i = 0; i < buttons; i++)
+            {
+                if (js_btnmap[i] >= 0x120 && js_btnmap[i] <= 0x13f)
+                    pad = true;
+                if (js_btnmap[i] >= 0x140 && js_btnmap[i] <= 0x14f)
+                    digi = true;
+            }
+            if (!pad || digi)
+            {
+                close(fd);
+                index = (index+1) & 0xF;
+                return -1;
+            }
+        }
+        #endif
+
 
         // construct mapping
         uint8_t* m = gamepad_mapping;
