@@ -121,3 +121,9 @@ Asciicker is MIT (LICENSE, "Copyright (c) 2021 gumix / msokalski"); the
 repository's art, meshes, world and samples carry no other notice.
 QuickJS-ng and miniaudio ship their licences as QUICKJS-LICENSE and
 MINIAUDIO-LICENSE in each archive.
+
+## Ours
+
+- **How to play it, at the top of README.md.** A short note on installing and
+  starting it with av, or from a release archive; the original text follows
+  unchanged.
